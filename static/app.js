@@ -1,5 +1,5 @@
 /**
- * InfrX Mortgage Intelligence Agent v2 — Frontend Application
+ * Deep Matrix — Mortgage Document Intelligence — Frontend Application
  * Handles document tree, page viewer, chat QA, audit flow, and all interactions.
  */
 document.addEventListener("DOMContentLoaded", () => {

@@ -12,7 +12,7 @@ from pdf_processor import extract_and_classify_pdf, enrich_mock_documents
 from qa_engine import query_document
 from mock_data import MOCK_LOAN_FILE
 
-app = FastAPI(title="InfrX Mortgage QA Agent v2", version="2.0.0")
+app = FastAPI(title="Deep Matrix — Mortgage Document Intelligence", version="2.0.0")
 
 # Enable CORS for local testing
 app.add_middleware(
@@ -122,7 +122,9 @@ async def upload_pdf(file: UploadFile = File(...), api_key: str = Form(None)):
             "message": "File uploaded, classified, and cached successfully",
             "document_name": CURRENT_DOC_NAME,
             "page_count": len(result["pages"]),
-            "documents": result["documents"]
+            "documents": result["documents"],
+            "source": result.get("source", "unknown"),
+            "stats": result.get("stats", {})
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")
