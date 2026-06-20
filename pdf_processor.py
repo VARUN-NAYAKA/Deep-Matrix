@@ -2,8 +2,12 @@ import re
 import os
 import time
 import json
+import io
 import pypdf
 import google.generativeai as genai
+import fitz
+import pytesseract
+from PIL import Image
 
 # Document type visual metadata for the UI
 DOC_TYPE_META = {
@@ -154,24 +158,52 @@ def extract_and_classify_pdf(pdf_path: str, api_key: str = None) -> dict:
 
 def _extract_and_classify_pdf_local(pdf_path: str) -> dict:
     """
-    Extracts text page-by-page locally using PyPDF and groups pages
-    into logical document boundaries using heuristics (fallback).
+    Extracts text page-by-page locally using PyPDF. If a page has little/no text,
+    runs local Tesseract OCR on the page using PyMuPDF to extract text from scanned pages.
     """
+    fitz_doc = None
+    try:
+        fitz_doc = fitz.open(pdf_path)
+    except Exception as e:
+        print(f"PyMuPDF failed to open PDF: {str(e)}")
+
     reader = pypdf.PdfReader(pdf_path)
     pages = []
     
     for idx, page in enumerate(reader.pages):
         page_num = idx + 1
         text = page.extract_text() or ""
+        
+        # Check if page is empty/scanned (less than 40 chars)
+        if len(text.strip()) < 40 and fitz_doc:
+            try:
+                print(f"Page {page_num} has no selectable text. Running local Tesseract OCR...")
+                page_fitz = fitz_doc[idx]
+                pix = page_fitz.get_pixmap(dpi=150)
+                img_data = pix.tobytes("png")
+                img = Image.open(io.BytesIO(img_data))
+                
+                # Configure local Tesseract path
+                pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+                ocr_text = pytesseract.image_to_string(img)
+                if ocr_text.strip():
+                    text = ocr_text
+                    print(f"Successfully OCRed Page {page_num} ({len(text)} characters extracted).")
+            except Exception as ocr_err:
+                print(f"Failed to OCR Page {page_num}: {str(ocr_err)}")
+                
         normalized_text = " ".join(text.split()).lower()
         pages.append({
             "page_number": page_num,
             "text": text,
             "normalized_text": normalized_text,
             "classification": "Unknown",
-            "summary": "Page content extracted locally.",
+            "summary": "Page content extracted locally and OCRed.",
             "keywords": ""
         })
+        
+    if fitz_doc:
+        fitz_doc.close()
         
     documents = []
     current_doc = None
