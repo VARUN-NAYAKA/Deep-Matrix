@@ -11,6 +11,7 @@ import pdf_processor
 from pdf_processor import extract_and_classify_pdf, enrich_mock_documents
 from qa_engine import query_document
 from mock_data import MOCK_LOAN_FILE
+import training_loader
 
 app = FastAPI(title="InfrX Mortgage QA Agent v2", version="2.0.0")
 
@@ -75,7 +76,10 @@ def startup_event():
     db_cache.init_db()
     # Cache the mock data so routing works on first run
     populate_db_with_doc("mock_doc", CURRENT_DOC_NAME, CURRENT_DOC_DATA)
-    print("Database initialized and mock document cached successfully.")
+    # Preload training data index
+    stats = training_loader.get_training_stats()
+    print(f"Database initialized and mock document cached successfully.")
+    print(f"[Training] Loaded {stats['total']} QA pairs: {stats['answerable']} answerable, {stats['unanswerable']} unanswerable.")
 
 @app.get("/api/status")
 def get_status():
@@ -85,6 +89,18 @@ def get_status():
         "page_count": len(CURRENT_DOC_DATA["pages"]) if CURRENT_DOC_DATA else 0,
         "document_count": len(CURRENT_DOC_DATA["documents"]) if CURRENT_DOC_DATA else 0,
         "env_key_available": bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+    }
+
+@app.get("/api/training-stats")
+def get_training_stats():
+    """Returns metadata about the loaded ground-truth training dataset."""
+    stats = training_loader.get_training_stats()
+    return {
+        "total_qa_pairs": stats["total"],
+        "answerable": stats["answerable"],
+        "unanswerable": stats["unanswerable"],
+        "by_kind": stats["by_kind"],
+        "status": "loaded" if stats["total"] > 0 else "not_loaded"
     }
 
 @app.post("/api/upload")

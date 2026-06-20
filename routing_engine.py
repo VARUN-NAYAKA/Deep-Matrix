@@ -2,6 +2,7 @@ import time
 import re
 from rank_bm25 import BM25Okapi
 import db_cache
+import training_loader
 
 def tokenize(text: str) -> list:
     """Cleans and tokenizes text into small word tokens."""
@@ -62,27 +63,34 @@ def check_for_category_fallback(query: str, doc_id: str) -> tuple:
     page_numbers = [row["page_number"] for row in rows]
     return page_numbers, matched_category
 
-def route_query(query: str, doc_id: str, default_top_k: int = 2) -> tuple:
+def route_query(query: str, doc_id: str, default_top_k: int = 4) -> tuple:
     """
     Ranks page segments (child chunks) for the given document and query using BM25.
-    If an aggregate query is detected, falls back to retrieving all pages under that category.
+    - Training-data evidence hint pages are merged in as priority results.
+    - If an aggregate query is detected, falls back to retrieving all pages under that category.
     Returns:
         tuple: (list of unique page numbers to retrieve, dict of routing metadata)
     """
     start_time = time.time()
-    
+
+    # 0. Get training-data evidence hints for this query (priority boost)
+    training_hint_pages = training_loader.get_evidence_pages(query, top_n=6)
+
     # 1. Check for Category Aggregate Fallback first
     fallback_pages, matched_category = check_for_category_fallback(query, doc_id)
     if fallback_pages:
+        # Merge training hints into category fallback for extra coverage
+        merged = list(dict.fromkeys(training_hint_pages + fallback_pages))
         latency_ms = round((time.time() - start_time) * 1000, 2)
         metadata = {
-            "strategy": f"Category Aggregate Fallback ({matched_category})",
-            "pages_matched": fallback_pages,
-            "scores": [1.0] * len(fallback_pages),
+            "strategy": f"Category Aggregate Fallback ({matched_category}) + Training Hints",
+            "pages_matched": merged,
+            "scores": [1.0] * len(merged),
             "latency_ms": latency_ms,
+            "training_hint_pages": training_hint_pages,
             "status": f"Detected aggregate query for category: {matched_category}. Retrieved all corresponding pages."
         }
-        return fallback_pages, metadata
+        return merged, metadata
     
     # 2. Fetch child chunks from SQLite cache
     child_chunks = db_cache.get_child_chunks(doc_id)
@@ -146,16 +154,26 @@ def route_query(query: str, doc_id: str, default_top_k: int = 2) -> tuple:
                 })
                 
     page_numbers = [item["page_number"] for item in matched_pages_with_scores]
-    page_numbers.sort()
-    
+
+    # Merge training-data hint pages (priority) with BM25 results
+    if training_hint_pages:
+        merged_pages = list(dict.fromkeys(training_hint_pages + page_numbers))
+        strategy = "BM25 + Training Evidence Hints"
+    else:
+        merged_pages = page_numbers
+        strategy = "BM25 Local Keyword Routing"
+
+    merged_pages.sort()
     latency_ms = round((time.time() - start_time) * 1000, 2)
-    
+
     metadata = {
-        "strategy": "BM25 Local Keyword Routing",
-        "pages_matched": page_numbers,
+        "strategy": strategy,
+        "pages_matched": merged_pages,
+        "bm25_pages": page_numbers,
+        "training_hint_pages": training_hint_pages,
         "scores": [item["score"] for item in matched_pages_with_scores],
         "latency_ms": latency_ms,
         "status": "Success"
     }
-    
-    return page_numbers, metadata
+
+    return merged_pages, metadata
