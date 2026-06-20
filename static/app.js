@@ -202,30 +202,163 @@ document.addEventListener("DOMContentLoaded", () => {
         const formData = new FormData();
         formData.append("file", file);
         formData.append("api_key", apiKey);
-        statusLabel.textContent = "Analyzing document boundaries...";
 
-        try {
-            const resp = await fetch("/api/upload", { method: "POST", body: formData });
-            const data = await resp.json();
-            if (resp.ok) {
-                state.docName = data.document_name;
-                state.pageCount = data.page_count;
-                state.documents = data.documents;
-                state.currentPage = 1;
-                statusLabel.textContent = state.docName;
-                lblTotalPages.textContent = state.pageCount;
-                lblCurrentPage.textContent = 1;
-                renderDocTree();
-                loadPage(1);
-                addSystemMessage(`Successfully uploaded and paginated <b>${esc(state.docName)}</b> into <b>${state.documents.length}</b> logical documents across <b>${state.pageCount}</b> pages.`);
-            } else {
-                alert(`Upload failed: ${data.detail}`);
-                fetchStatus();
-            }
-        } catch (err) {
-            alert(`Error uploading: ${err.message}`);
-            fetchStatus();
+        // ── DOM refs for progress UI ─────────────────────────────────────
+        const wrap      = document.getElementById("upload-progress-wrap");
+        const bar       = document.getElementById("upload-progress-bar");
+        const pctLabel  = document.getElementById("upload-progress-pct");
+        const stageLabel = document.getElementById("upload-progress-label");
+        const stages = {
+            transfer: document.getElementById("stage-transfer"),
+            ocr:      document.getElementById("stage-ocr"),
+            classify: document.getElementById("stage-classify"),
+            cache:    document.getElementById("stage-cache"),
+            done:     document.getElementById("stage-done"),
+        };
+
+        // ── Helpers ──────────────────────────────────────────────────────
+        function setProgress(pct, label) {
+            bar.style.width = pct + "%";
+            pctLabel.textContent = Math.round(pct) + "%";
+            if (label) stageLabel.textContent = label;
         }
+
+        function activateStage(key) {
+            Object.entries(stages).forEach(([k, el]) => {
+                el.setAttribute("data-active", k === key ? "true" : "false");
+                // Keep completed stages green
+                if (el.getAttribute("data-done") !== "true") {
+                    el.setAttribute("data-active", k === key ? "true" : "false");
+                }
+            });
+        }
+
+        function markStageDone(key) {
+            const el = stages[key];
+            el.setAttribute("data-active", "false");
+            el.setAttribute("data-done", "true");
+        }
+
+        function resetStages() {
+            Object.values(stages).forEach(el => {
+                el.setAttribute("data-active", "false");
+                el.setAttribute("data-done", "false");
+            });
+        }
+
+        // ── Show progress bar ────────────────────────────────────────────
+        resetStages();
+        setProgress(0, "Preparing upload...");
+        wrap.classList.add("visible");
+        statusLabel.textContent = "Uploading document...";
+        activateStage("transfer");
+
+        // Server-side processing stages (simulated after upload completes)
+        // Real upload progress = 0→60%, server processing = 60→100%
+        let serverTimer = null;
+
+        return new Promise((resolve) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", "/api/upload", true);
+
+            // ── Real upload progress (0% → 60%) ─────────────────────────
+            xhr.upload.addEventListener("progress", (e) => {
+                if (e.lengthComputable) {
+                    const uploadPct = (e.loaded / e.total) * 60;
+                    setProgress(uploadPct, "Transferring file to server...");
+                    if (uploadPct >= 58) {
+                        markStageDone("transfer");
+                    }
+                }
+            });
+
+            // ── Upload complete — simulate server-side stages ─────────────
+            xhr.upload.addEventListener("load", () => {
+                markStageDone("transfer");
+                setProgress(60, "Running OCR scan on pages...");
+                activateStage("ocr");
+
+                // Animate server-side stages over ~3s while waiting for response
+                serverTimer = setTimeout(() => {
+                    markStageDone("ocr");
+                    setProgress(75, "Classifying document sections...");
+                    activateStage("classify");
+
+                    setTimeout(() => {
+                        markStageDone("classify");
+                        setProgress(88, "Caching chunks to database...");
+                        activateStage("cache");
+
+                        setTimeout(() => {
+                            setProgress(96, "Finalizing...");
+                        }, 1200);
+                    }, 1200);
+                }, 1200);
+            });
+
+            // ── Response received ─────────────────────────────────────────
+            xhr.addEventListener("load", () => {
+                if (serverTimer) clearTimeout(serverTimer);
+
+                try {
+                    const data = JSON.parse(xhr.responseText);
+
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        // Success
+                        markStageDone("cache");
+                        setProgress(100, "Document ready!");
+                        activateStage("done");
+                        markStageDone("done");
+
+                        state.docName    = data.document_name;
+                        state.pageCount  = data.page_count;
+                        state.documents  = data.documents;
+                        state.currentPage = 1;
+
+                        statusLabel.textContent = state.docName;
+                        lblTotalPages.textContent = state.pageCount;
+                        lblCurrentPage.textContent = 1;
+                        renderDocTree();
+                        loadPage(1);
+                        addSystemMessage(
+                            `Successfully uploaded and paginated <b>${esc(state.docName)}</b> into <b>${state.documents.length}</b> logical documents across <b>${state.pageCount}</b> pages.`
+                        );
+
+                        // Hide progress bar after 2.5s
+                        setTimeout(() => {
+                            wrap.classList.remove("visible");
+                            resetStages();
+                            setProgress(0, "Uploading PDF...");
+                        }, 2500);
+
+                    } else {
+                        // API error
+                        setProgress(0, "Upload failed.");
+                        wrap.classList.remove("visible");
+                        alert(`Upload failed: ${data.detail || "Unknown error"}`);
+                        fetchStatus();
+                    }
+                } catch (e) {
+                    setProgress(0, "Parse error.");
+                    wrap.classList.remove("visible");
+                    alert("Error parsing server response.");
+                    fetchStatus();
+                }
+                resolve();
+            });
+
+            // ── Network error ─────────────────────────────────────────────
+            xhr.addEventListener("error", () => {
+                if (serverTimer) clearTimeout(serverTimer);
+                setProgress(0, "Network error.");
+                wrap.classList.remove("visible");
+                alert("Network error during upload.");
+                fetchStatus();
+                resolve();
+            });
+
+            xhr.send(formData);
+        });
     }
 
     async function submitQuery(query) {

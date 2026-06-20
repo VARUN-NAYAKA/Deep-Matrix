@@ -48,6 +48,25 @@
                 </div>
             </header>
 
+            <!-- ====== Upload Progress Bar ====== -->
+            <div class="upload-progress-wrap" id="upload-progress-wrap">
+                <div class="upload-progress-header">
+                    <span class="upload-progress-icon"><i class="fa-solid fa-spinner fa-spin"></i></span>
+                    <span class="upload-progress-label" id="upload-progress-label">Uploading PDF...</span>
+                    <span class="upload-progress-pct" id="upload-progress-pct">0%</span>
+                </div>
+                <div class="upload-progress-track">
+                    <div class="upload-progress-bar" id="upload-progress-bar"></div>
+                </div>
+                <div class="upload-progress-stages">
+                    <span class="upload-stage" id="stage-transfer" data-active="false"><i class="fa-solid fa-arrow-up-from-bracket"></i> Transferring</span>
+                    <span class="upload-stage" id="stage-ocr" data-active="false"><i class="fa-solid fa-eye"></i> OCR Scan</span>
+                    <span class="upload-stage" id="stage-classify" data-active="false"><i class="fa-solid fa-layer-group"></i> Classifying</span>
+                    <span class="upload-stage" id="stage-cache" data-active="false"><i class="fa-solid fa-database"></i> Caching</span>
+                    <span class="upload-stage" id="stage-done" data-active="false"><i class="fa-solid fa-circle-check"></i> Ready</span>
+                </div>
+            </div>
+
             <!-- Workspace Grid -->
             <div class="workspace-grid">
 
