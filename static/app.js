@@ -198,8 +198,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async function uploadFile(file) {
+        const apiKey = localStorage.getItem("gemini_api_key") || "";
         const formData = new FormData();
         formData.append("file", file);
+        formData.append("api_key", apiKey);
         statusLabel.textContent = "Analyzing document boundaries...";
 
         try {

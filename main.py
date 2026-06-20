@@ -52,9 +52,10 @@ def populate_db_with_doc(doc_id: str, doc_name: str, doc_data: dict):
         text = page["text"]
         classification = page_to_class.get(page_num, "Unknown")
         
-        # Save page as a parent chunk
+        # Save page as a parent chunk (with page summary)
         parent_id = f"{doc_id}_p_{page_num}"
-        db_cache.save_parent_chunk(parent_id, doc_id, page_num, text, classification)
+        summary = page.get("summary")
+        db_cache.save_parent_chunk(parent_id, doc_id, page_num, text, classification, summary)
         
         # Split text into child chunks and store
         child_segments = pdf_processor.split_page_into_child_chunks(page_num, text)
@@ -87,7 +88,7 @@ def get_status():
     }
 
 @app.post("/api/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(file: UploadFile = File(...), api_key: str = Form(None)):
     global CURRENT_DOC_DATA, CURRENT_DOC_NAME
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
@@ -100,8 +101,8 @@ async def upload_pdf(file: UploadFile = File(...)):
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
-        # Process and classify the PDF
-        result = extract_and_classify_pdf(temp_path)
+        # Process and classify the PDF (Option C: Multimodal parsing)
+        result = extract_and_classify_pdf(temp_path, api_key)
         
         # Generate clean unique ID for this upload
         doc_id = f"upload_{int(time.time())}"
