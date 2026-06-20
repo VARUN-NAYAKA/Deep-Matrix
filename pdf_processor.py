@@ -143,3 +143,60 @@ def enrich_mock_documents(documents: list) -> list:
             doc["confidence"] = 0.95  # mock data is high confidence
         enriched.append(doc)
     return enriched
+
+
+def split_page_into_child_chunks(page_num: int, text: str) -> list:
+    """
+    Splits page text into smaller child chunks (~100 tokens / 350 chars each) for indexing.
+    Returns list of dicts: {"page_number": int, "text_segment": str, "keywords": str}
+    """
+    # Simple sentence splitter using punctuation boundaries
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    chunks = []
+    current_chunk = []
+    current_length = 0
+    
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        current_chunk.append(sentence)
+        current_length += len(sentence)
+        
+        # When chunk size is roughly 300-350 characters, save it
+        if current_length >= 350:
+            segment_text = " ".join(current_chunk)
+            chunks.append({
+                "page_number": page_num,
+                "text_segment": segment_text,
+                "keywords": _extract_simple_keywords(segment_text)
+            })
+            current_chunk = []
+            current_length = 0
+            
+    if current_chunk:
+        segment_text = " ".join(current_chunk)
+        chunks.append({
+            "page_number": page_num,
+            "text_segment": segment_text,
+            "keywords": _extract_simple_keywords(segment_text)
+        })
+        
+    # If the page was empty or had no chunks, return a default single chunk
+    if not chunks:
+        chunks.append({
+            "page_number": page_num,
+            "text_segment": text or f"[Page {page_num} Empty Content]",
+            "keywords": ""
+        })
+        
+    return chunks
+
+
+def _extract_simple_keywords(text: str) -> str:
+    """Extracts high-value terms (capitalized words, numbers, and key symbols) as keywords."""
+    # Find all numbers, dates, capitalized words, or financial figures
+    items = re.findall(r'\b(?:[A-Z][a-zA-Z0-9]+|\$[0-9,]+(?:\.[0-9]+)?|[0-9]{4})\b', text)
+    # Filter unique items and join as a comma-separated string
+    unique_items = list(set(items))
+    return ",".join(unique_items)

@@ -1,10 +1,13 @@
 import os
 import shutil
+import time
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import db_cache
+import pdf_processor
 from pdf_processor import extract_and_classify_pdf, enrich_mock_documents
 from qa_engine import query_document
 from mock_data import MOCK_LOAN_FILE
@@ -20,15 +23,58 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory document storage — enrich mock docs with visual metadata
+# In-memory document storage fallback & initial state
 _mock = MOCK_LOAN_FILE.copy()
 _mock["documents"] = enrich_mock_documents(_mock["documents"])
+_mock["id"] = "mock_doc"  # Identify mock data uniquely
 CURRENT_DOC_DATA = _mock
 CURRENT_DOC_NAME = "Mock_Mortgage_File_Sample.pdf (Preloaded)"
 
 class QueryRequest(BaseModel):
     query: str
     api_key: str = None
+
+def populate_db_with_doc(doc_id: str, doc_name: str, doc_data: dict):
+    """Helper to split pages and populate the parent/child chunks cache in SQLite."""
+    # 1. Save document index record
+    db_cache.save_document(doc_id, doc_name, len(doc_data["pages"]))
+    
+    # 2. Map page numbers to logical classifications
+    page_to_class = {}
+    for doc in doc_data["documents"]:
+        classification = doc["doc_type"]
+        for p_num in doc["pages"]:
+            page_to_class[p_num] = classification
+            
+    # 3. Store Parent and Child chunks
+    for page in doc_data["pages"]:
+        page_num = page["page_number"]
+        text = page["text"]
+        classification = page_to_class.get(page_num, "Unknown")
+        
+        # Save page as a parent chunk
+        parent_id = f"{doc_id}_p_{page_num}"
+        db_cache.save_parent_chunk(parent_id, doc_id, page_num, text, classification)
+        
+        # Split text into child chunks and store
+        child_segments = pdf_processor.split_page_into_child_chunks(page_num, text)
+        for idx, child in enumerate(child_segments):
+            child_id = f"{doc_id}_c_{page_num}_{idx}"
+            db_cache.save_child_chunk(
+                child_id, 
+                parent_id, 
+                page_num, 
+                child["text_segment"], 
+                child.get("keywords")
+            )
+
+@app.on_event("startup")
+def startup_event():
+    """Initializes the database schema and preloads the mock mortgage file into SQLite cache."""
+    db_cache.init_db()
+    # Cache the mock data so routing works on first run
+    populate_db_with_doc("mock_doc", CURRENT_DOC_NAME, CURRENT_DOC_DATA)
+    print("Database initialized and mock document cached successfully.")
 
 @app.get("/api/status")
 def get_status():
@@ -56,11 +102,23 @@ async def upload_pdf(file: UploadFile = File(...)):
             
         # Process and classify the PDF
         result = extract_and_classify_pdf(temp_path)
-        CURRENT_DOC_DATA = result
+        
+        # Generate clean unique ID for this upload
+        doc_id = f"upload_{int(time.time())}"
+        
+        # Set state
+        CURRENT_DOC_DATA = {
+            "id": doc_id,
+            "pages": result["pages"],
+            "documents": result["documents"]
+        }
         CURRENT_DOC_NAME = file.filename
         
+        # Write to SQLite Cache (Parent-Child chunk structures)
+        populate_db_with_doc(doc_id, CURRENT_DOC_NAME, CURRENT_DOC_DATA)
+        
         return {
-            "message": "File uploaded and analyzed successfully",
+            "message": "File uploaded, classified, and cached successfully",
             "document_name": CURRENT_DOC_NAME,
             "page_count": len(result["pages"]),
             "documents": result["documents"]

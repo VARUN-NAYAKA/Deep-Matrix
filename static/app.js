@@ -229,6 +229,11 @@ document.addEventListener("DOMContentLoaded", () => {
     async function submitQuery(query) {
         state.isQuerying = true;
         chatSendBtn.disabled = true;
+        
+        // Clear existing tree node glows before new query starts
+        const nodes = document.querySelectorAll(".doc-node");
+        nodes.forEach(node => node.classList.remove("glow-pulse"));
+        
         addUserMessage(query);
         const placeholder = addTypingPlaceholder();
 
@@ -374,6 +379,22 @@ document.addEventListener("DOMContentLoaded", () => {
         const confidence = data.confidence || "medium";
         const reasoning = data.reasoning || "";
         const auditFlow = data.audit_flow || null;
+        const routing = data.routing || null;
+
+        // Build routing trace breadcrumbs
+        let routingBreadcrumb = "";
+        if (routing && routing.pages_matched) {
+            const pages = routing.pages_matched.join(", ");
+            const scoreStr = routing.scores && routing.scores.length ? ` (BM25 Match Score: ${routing.scores[0]})` : "";
+            routingBreadcrumb = `
+                <div class="routing-breadcrumb">
+                    <span class="routing-tag"><i class="fa-solid fa-route"></i> Router matched: Pages ${pages}${scoreStr}</span>
+                    <span class="routing-latency"><i class="fa-solid fa-clock"></i> ${routing.latency_ms}ms</span>
+                </div>
+            `;
+            // Trigger visual pulse glow on matched categories in document tree
+            highlightMatchedDocNodes(routing.pages_matched);
+        }
 
         // Confidence badge
         const confBadge = `<div class="confidence-badge ${confidence}"><i class="fa-solid fa-${confidence === 'high' ? 'circle-check' : confidence === 'medium' ? 'circle-exclamation' : 'circle-xmark'}"></i> ${confidence.toUpperCase()} CONFIDENCE</div>`;
@@ -401,6 +422,7 @@ document.addEventListener("DOMContentLoaded", () => {
         placeholder.innerHTML = `
             <div class="msg-avatar"><i class="fa-solid fa-robot"></i></div>
             <div class="msg-bubble">
+                ${routingBreadcrumb}
                 ${confBadge}
                 <p>${esc(answer)}</p>
                 ${citationsHTML}
@@ -536,6 +558,27 @@ document.addEventListener("DOMContentLoaded", () => {
         const div = document.createElement("div");
         div.appendChild(document.createTextNode(text));
         return div.innerHTML;
+    }
+
+    function highlightMatchedDocNodes(matchedPages) {
+        const nodes = document.querySelectorAll(".doc-node");
+        nodes.forEach(node => node.classList.remove("glow-pulse"));
+        
+        if (!matchedPages || !matchedPages.length) return;
+        
+        state.documents.forEach((doc, idx) => {
+            // Check if this document category contains any matched pages
+            const overlaps = doc.pages.some(p => matchedPages.includes(p));
+            if (overlaps) {
+                if (nodes[idx]) {
+                    nodes[idx].classList.add("glow-pulse");
+                    // Turn off glow after 6 seconds
+                    setTimeout(() => {
+                        nodes[idx].classList.remove("glow-pulse");
+                    }, 6000);
+                }
+            }
+        });
     }
 
 });

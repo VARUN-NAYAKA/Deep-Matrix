@@ -193,6 +193,56 @@ body {
     border-color: var(--border-subtle);
 }
 
+.error-text {
+    color: var(--red);
+}
+
+/* ---- Hybrid RAG Routing Animations ---- */
+@keyframes glow-pulse {
+    0% {
+        box-shadow: 0 0 4px rgba(0, 242, 254, 0.2);
+        border-color: var(--border-subtle);
+    }
+    50% {
+        box-shadow: 0 0 16px var(--cyan-glow-strong), inset 0 0 8px var(--cyan-glow);
+        border-color: var(--cyan);
+        background: rgba(0, 242, 254, 0.05);
+    }
+    100% {
+        box-shadow: 0 0 4px rgba(0, 242, 254, 0.2);
+        border-color: var(--border-subtle);
+    }
+}
+
+.doc-node.glow-pulse {
+    animation: glow-pulse 1.5s ease-in-out infinite;
+}
+
+/* ---- Routing Breadcrumbs ---- */
+.routing-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(6, 9, 17, 0.8);
+    border: 1px solid rgba(0, 242, 254, 0.15);
+    border-radius: var(--radius-sm);
+    padding: 6px 12px;
+    margin-bottom: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+}
+
+.routing-tag {
+    color: var(--cyan);
+    font-weight: 500;
+}
+
+.routing-latency {
+    color: var(--text-tertiary);
+    border-left: 1px solid var(--border-subtle);
+    padding-left: 12px;
+}
+
 .sidebar-btn.active {
     color: var(--text-inverse);
     background: linear-gradient(135deg, var(--cyan) 0%, var(--cyan-muted) 100%);

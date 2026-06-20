@@ -1,11 +1,14 @@
 import os
 import json
 import google.generativeai as genai
+import db_cache
+import routing_engine
 
 def query_document(query: str, document_data: dict, api_key: str = None):
     """
-    Queries the document pages using Gemini 1.5 Flash to extract answers
+    Queries the document pages using Gemini 2.5 Flash to extract answers
     along with page-level citations and structured audit flow data.
+    Uses local BM25 keyword routing to fetch only relevant pages.
     """
     key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not key:
@@ -13,14 +16,30 @@ def query_document(query: str, document_data: dict, api_key: str = None):
         
     genai.configure(api_key=key)
     
-    # Formulate context from document_data
-    pages = document_data.get("pages", [])
+    doc_id = document_data.get("id", "doc_1")
     
-    # Format pages for the prompt context
+    # 1. Run local BM25 routing to find target pages
+    matched_pages, routing_metadata = routing_engine.route_query(query, doc_id)
+    
+    # 2. Retrieve matched page texts from SQLite DB
+    retrieved_pages = db_cache.get_parent_pages_text(doc_id, matched_pages)
+    
+    # Fallback to document_data in-memory if DB is empty or has no entries
+    if not retrieved_pages:
+        all_pages = document_data.get("pages", [])
+        retrieved_pages = [{"page_number": p["page_number"], "text_content": p["text"]} for p in all_pages if p["page_number"] in matched_pages]
+        if not retrieved_pages:
+            retrieved_pages = [{"page_number": p["page_number"], "text_content": p["text"]} for p in all_pages]
+            routing_metadata["status"] = "DB cache empty. Fallback to all in-memory pages."
+            
+    # 3. Format pages for the prompt context
     context_str = ""
-    for p in pages:
-        page_text = p['text'][:3000]
-        context_str += f"\n--- START OF PAGE {p['page_number']} ---\n{page_text}\n--- END OF PAGE {p['page_number']} ---\n"
+    for p in retrieved_pages:
+        page_num = p.get("page_number")
+        text = p.get("text_content") or p.get("text") or ""
+        page_text = text[:3000]  # Limit length for prompt safety
+        classification = p.get("doc_classification", "Unclassified")
+        context_str += f"\n--- START OF PAGE {page_num} [{classification}] ---\n{page_text}\n--- END OF PAGE {page_num} ---\n"
         
     prompt = f"""
 You are a senior mortgage underwriter and document analysis assistant. Answer the user's question based strictly on the document context below.
@@ -90,7 +109,6 @@ User Question: {query}
     )
     
     try:
-        # Strip code blocks if LLM outputs markdown-wrapped JSON
         resp_text = response.text.strip()
         if resp_text.startswith("```json"):
             resp_text = resp_text[7:]
@@ -98,10 +116,10 @@ User Question: {query}
             resp_text = resp_text[:-3]
         result = json.loads(resp_text.strip())
         
-        # Ensure audit_flow exists even if LLM didn't return it
         if "audit_flow" not in result:
             result["audit_flow"] = _default_audit_flow()
             
+        result["routing"] = routing_metadata
         return result
     except Exception as e:
         return {
@@ -109,8 +127,10 @@ User Question: {query}
             "citations": [],
             "confidence": "medium",
             "reasoning": f"Could not parse response as JSON. Error: {str(e)}",
-            "audit_flow": _default_audit_flow()
+            "audit_flow": _default_audit_flow(),
+            "routing": routing_metadata
         }
+
 
 
 def _default_audit_flow():
