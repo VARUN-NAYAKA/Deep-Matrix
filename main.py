@@ -1,6 +1,7 @@
 import os
 import shutil
 import time
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,7 +14,18 @@ from qa_engine import query_document
 from mock_data import MOCK_LOAN_FILE
 import training_loader
 
-app = FastAPI(title="InfrX Mortgage QA Agent v2", version="2.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Modern lifespan handler: runs startup logic before yield, teardown after."""
+    db_cache.init_db()
+    populate_db_with_doc("mock_doc", CURRENT_DOC_NAME, CURRENT_DOC_DATA)
+    stats = training_loader.get_training_stats()
+    print("Database initialized and mock document cached successfully.")
+    print(f"[Training] Loaded {stats['total']} QA pairs: {stats['answerable']} answerable, {stats['unanswerable']} unanswerable.")
+    yield  # App runs here
+    # Teardown (if needed) goes after yield
+
+app = FastAPI(title="InfrX Mortgage QA Agent v2", version="2.0.0", lifespan=lifespan)
 
 # Enable CORS for local testing
 app.add_middleware(
@@ -70,16 +82,7 @@ def populate_db_with_doc(doc_id: str, doc_name: str, doc_data: dict):
                 child.get("keywords")
             )
 
-@app.on_event("startup")
-def startup_event():
-    """Initializes the database schema and preloads the mock mortgage file into SQLite cache."""
-    db_cache.init_db()
-    # Cache the mock data so routing works on first run
-    populate_db_with_doc("mock_doc", CURRENT_DOC_NAME, CURRENT_DOC_DATA)
-    # Preload training data index
-    stats = training_loader.get_training_stats()
-    print(f"Database initialized and mock document cached successfully.")
-    print(f"[Training] Loaded {stats['total']} QA pairs: {stats['answerable']} answerable, {stats['unanswerable']} unanswerable.")
+# Startup is handled by the lifespan context manager above
 
 @app.get("/api/status")
 def get_status():
