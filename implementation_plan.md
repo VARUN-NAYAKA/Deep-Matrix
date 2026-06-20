@@ -1,106 +1,104 @@
-# Mortgage QA Auditor v2 — Premium Futuristic Rebuild (Hybrid RAG Specification)
+# Mortgage QA Auditor v2 — Premium Futuristic Rebuild (Multimodal Hybrid RAG)
 
-Rebuild the existing `infrd` prototype into a production-quality, visually stunning Mortgage QA Auditor in the `infrd 2` workspace. This plan outlines the migration from the baseline memory-only full-context RAG to a highly scalable **Logical DOM Schema & Hybrid Local Routing RAG** using SQLite caching and BM25 search.
+Rebuild the existing `infrd` prototype into a production-quality, visually stunning Mortgage QA Auditor in the `infrd 2` workspace. This plan details the finalized **Option C: Multimodal Hybrid RAG** architecture, specifically designed to handle mixed-type PDF files (native digital text and scanned/photographed pages) with maximum token efficiency and low-latency query routing.
 
 ---
 
-## 🏛️ System Architecture
+## 🏛️ System Architecture: Option C
 
 ```mermaid
 graph TD
-    subgraph Ingestion Phase [One-Time Setup]
-        PDF[Raw Loan PDF] -->|PyMuPDF Parser| Pages[Page Splitting]
-        Pages -->|Rule-Based Parser| DocMap[Build Logical DOM Tree]
-        Pages -->|Parent Chunks: 1000 tokens| ParentCache[Parent docstore: SQLite]
-        Pages -->|Child Chunks: 100 tokens| ChildIndex[Child Embeddings/BM25 Index]
+    subgraph Ingestion Phase [One-Time Setup per PDF]
+        PDF[Mixed-Type Loan PDF] -->|Gemini Multimodal API| VisionExtractor[Visual Page Classification & DOM Indexer]
+        VisionExtractor -->|Page Categorisation & Summaries| LogicalDOM[JSON Schema DOM]
+        LogicalDOM -->|Parent: Page Texts| SQLiteParent[SQLite: parent_chunks]
+        LogicalDOM -->|Child: Sentences/Cells + Keywords| SQLiteChild[SQLite: child_chunks]
     end
 
-    subgraph Runtime Routing [Under 50ms Local]
-        Query[User Question] -->|Hybrid Router| BM25[BM25 Exact Match]
-        Query -->|Hybrid Router| MiniLM[Local Sentence Embedding]
-        BM25 --> Matcher{Intersection}
-        MiniLM --> Matcher
-        Matcher -->|Page IDs & Confidence| Breadcrumbs[Visual UI Highlights]
+    subgraph Runtime Local Routing [Under 50ms Local CPU]
+        Query[User Question] -->|Keyword Analysis| CheckFallback{Aggregate Query?}
+        CheckFallback -->|Yes| CatFallback[Category Aggregate Fallback: Pull ALL pages in category]
+        CheckFallback -->|No| BM25Router[BM25 Local Keyword Search: Pull top-K pages]
+        CatFallback --> VisualGlow[UI Update: Node glowing & breadcrumb log]
+        BM25Router --> VisualGlow
     end
 
-    subgraph Synthesis [Targeted Prompt]
-        CacheLookup[SQLite Page Fetch] -->|Retrieve Raw Parent Page Text| Prompter[Build Prompt Context]
-        Prompter -->|Mini Context: ~4K tokens| Gemini[Gemini 2.5 Flash]
-        Gemini -->|Structured QA JSON| Frontend[Render UI Chat & citation links]
+    subgraph Synthesis [Targeted Context QA]
+        VisualGlow -->|Page numbers matched| SQLiteFetch[Retrieve parent chunks text]
+        SQLiteFetch -->|Prompt Context: ~4K tokens| GeminiFlash[Gemini 2.5 Flash]
+        GeminiFlash -->|Structured JSON| ChatUI[Render Chat answer & citations]
     end
 ```
 
 ---
 
-## ⚖️ Architecture Comparison: Current vs. Proposed
+## ⚖️ Architecture Performance Comparisons
 
-| Feature Dimension | Current System (Developed) | Proposed Hybrid RAG (Planned) |
-| :--- | :--- | :--- |
-| **Data Ingestion** | Extracts text and classifies documents in memory. | Extracts text, classifies documents, and stores **Parent** (page) and **Child** (sentence/field) chunks in **SQLite**. |
-| **Context Assembly** | Concatenates **every single page** of text in the uploaded document and passes it to the LLM on every message. | Selectively retrieves **only the target pages** containing relevant child chunks using a local BM25 engine. |
-| **Persistence** | **None**: If the FastAPI server restarts or the browser reloads, uploaded files and parsed categories are lost. | **Yes**: Files, logical tree structures, and extracted texts are saved in an SQLite database for instant retrieval. |
-| **UI Integration** | Citations are rendered as static links *after* the LLM synthesizes the final JSON response. | UI **instantly** flashes/glows matched tree nodes and outputs routing paths before the LLM even begins responding. |
-| **Token Footprint** | Scales linearly with document size for *every message* (e.g. 150 pages = ~300K input tokens per message). | One-time ingestion cost, then a **tiny, flat footprint** (~2K–4K tokens per message regardless of total document size). |
+| Metric | Option A: Baseline (Full Text Context) | Option B: Basic RAG (Local PDF Parser) | Option C: Multimodal Hybrid RAG (Finalized) |
+| :--- | :--- | :--- | :--- |
+| **Scanned Document Support** | Fails completely (extracts no text). | Fails (requires running local OCR first). | **Excellent**: Gemini's vision engine processes checkmarks, signatures, and grids natively. |
+| **Ingestion Time** | Instant. | Fast (~1–2s for native text split). | Slow (Gemini processes page screenshots once). |
+| **Token Efficiency** | **Very Low**: Sends full PDF size every message. | **Excellent**: Sends only top-K pages. | **Excellent**: Sends only top-K matching pages. |
+| **Aggregate Query Support** | Good (sees everything). | Fails (only sees top-K snippets). | **Excellent**: Uses Category Fallback to pull all category pages. |
+| **Chat Latency** | Slow (5–8s per message). | **Fast** (1–2s per message). | **Fast** (1–2s per message). |
 
 ---
 
-## 🛠️ Proposed Changes (Backend & Frontend)
+## 🛠️ Implementation Modules
 
 ### Backend (Python FastAPI)
-We introduce two new core modules and refactor the existing server.
 
-#### [NEW] [db_cache.py](file:///c:/Users/varun_dnlnykr/OneDrive/Desktop/infrd%202/db_cache.py)
-*   Handles database setup and operations for the local SQLite cache (`loan_audit_cache.db`).
-*   Tables:
-    *   `documents`: Metadata of uploaded loan packages.
-    *   `parent_chunks`: Full text content page-by-page.
-    *   `child_chunks`: Sentences or 100-token blocks of text mapping back to parent pages, with comma-separated exact keyword list.
+#### 1. Database Cache (`db_cache.py`) [SQLite Cache]
+Handles connection and writes to local SQLite database `loan_audit_cache.db`:
+*   `documents`: Records name, upload hash, and total page count.
+*   `parent_chunks`: Stores page-level texts, Gemini-based category classifications (W-2, Paystub, Bank Statement, Form 1040), and layout summaries.
+*   `child_chunks`: Stores smaller 100-token text segments with keyword mapping.
 
-#### [NEW] [routing_engine.py](file:///c:/Users/varun_dnlnykr/OneDrive/Desktop/infrd%202/routing_engine.py)
-*   Loads `child_chunks` corpus from SQLite.
-*   Uses `rank_bm25` (BM25Okapi) to run token search over the text segments.
-*   Returns matched `page_numbers` and scores under a configurable threshold.
+#### 2. Ingestion Engine (`pdf_processor.py`) [Gemini Multimodal parser]
+*   Converts PDF pages into images or uploads the PDF directly using Gemini's native File API.
+*   Invokes Gemini 2.5 Flash in structured JSON output mode to generate a *logical document map* (the DOM Schema).
+*   Stores parent page content and child chunks in `db_cache.py`.
 
-#### [MODIFY] [pdf_processor.py](file:///c:/Users/varun_dnlnykr/OneDrive/Desktop/infrd%202/pdf_processor.py)
-*   Integrate page-splitting into parent and child chunks.
-*   Split pages by punctuation bounds or 100-token segments to create search indexing nodes.
+#### 3. Routing Engine (`routing_engine.py`) [Local BM25 + Fallback]
+*   **Aggregate Category Fallback**: Detects aggregate queries (e.g. *"Compare deposits across statements"*, *"Total wages"*). Intercepts and retrieves all page numbers matching that category in the SQLite cache.
+*   **Local BM25 Matcher**: For targeted queries, runs `rank-bm25` locally on `child_chunks` and returns the top-2 page IDs under 2 milliseconds.
 
-#### [MODIFY] [qa_engine.py](file:///c:/Users/varun_dnlnykr/OneDrive/Desktop/infrd%202/qa_engine.py)
-*   Modify `query_document()` to query the `routing_engine` first.
-*   Fetch text only for the pages matched by the local router.
-*   Return a modified response JSON that includes metadata about the routing path (e.g., `routing_pages`, `routing_score`, `routing_latency_ms`).
+#### 4. QA Synthesis (`qa_engine.py`)
+*   Leverages the `routing_engine` to get page numbers.
+*   Queries Gemini 2.5 Flash using *only* the retrieved pages as context.
+*   Appends routing metadata (selected pages, matching scores, search latency) to the response JSON.
 
-#### [MODIFY] [main.py](file:///c:/Users/varun_dnlnykr/OneDrive/Desktop/infrd%202/main.py)
-*   Add endpoint `/api/query` updates to serialize local routing data.
-*   Initialize database cache tables on startup.
+#### 5. Server Entrypoint (`main.py`)
+*   Initializes the SQLite tables on startup.
+*   Preloads and caches mock mortgage data so routing functions immediately.
+*   Exposes endpoints `/api/upload` (Ingestion) and `/api/query` (RAG loop).
 
 ---
 
 ### Frontend (HTML/CSS/JS)
 
-#### [MODIFY] [static/app.js](file:///c:/Users/varun_dnlnykr/OneDrive/Desktop/infrd%202/static/app.js)
-*   **Visual Focus Highlight**: When sending a query, instantly run a pre-query check or use the API response to animate the background border (`glow-pulse` custom class) of matching category nodes in the left-side tree.
-*   **Breadcrumb Log**: Render a terminal style box: `[Routing matching page indexes...]` -> `Matched Pages 4, 5 via BM25 (Score: 2.84, Latency: 12ms)` directly above the AI response.
+#### 1. Visual highlights (`static/app.js` & `static/styles.css`)
+*   **Breadcrumb Log**: Displays a log card showing: `[Router matched]: Pages 4, 5 (BM25 Match Score: 4.86) [Latency: 2.1ms]` directly above the chat message.
+*   **Pulsing Node Glow**: Adds keyframe animations (`glow-pulse`) to tree cards on the left panel (e.g. W-2 node flashes cyan) when corresponding page IDs are routed, providing a visual audit trail.
 
 ---
 
 ## 📑 Verification Plan
 
-### Automated Tests
-1. Verify BM25 execution:
-   ```bash
-   pip install rank-bm25
-   python -c "import rank_bm25; print('BM25 library is installed')"
-   ```
-2. Verify SQLite DB writing:
-   ```python
-   # Run quick verification test script
-   import sqlite3
-   conn = sqlite3.connect("loan_audit_cache.db")
-   print("SQLite Database is accessible and writeable.")
-   ```
+### Automated Routing Verification
+Verify the BM25 search and Category Fallback routing logic locally:
+```python
+import routing_engine
+# 1. Verify specific targeted query
+pages, meta = routing_engine.route_query("2023 W-2 gross salary", "mock_doc")
+assert 4 in pages, "Failed to match W-2 page"
 
-### Manual Verification
-1.  **Check Document Upload & Storage**: Upload a PDF and check that `loan_audit_cache.db` is populated with `parent_chunks` and `child_chunks`.
-2.  **Verify Routing Paths**: Submit a QA query (e.g. *"What is the borrow wage?"*) and look at the terminal logs in the UI. Confirm it displays only Page 4 and Page 5 as retrieved.
-3.  **Confirm Visual Highlight**: Submit a query -> verify the matched categories on the left tree flash a pulsing border.
+# 2. Verify aggregate query fallback
+pages, meta = routing_engine.route_query("compare deposits across bank statement pages", "mock_doc")
+assert len(pages) == 3, "Failed to retrieve all bank statements"
+```
+
+### Manual Visual Verification
+1.  Upload a hybrid digital/scanned PDF.
+2.  Submit a query: check that matching categories on the left tree flash a pulsing cyan border.
+3.  Click citation pills: verify the text viewer instantly scrolls to the cited page.
