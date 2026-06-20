@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="InfrX Mortgage Document Intelligence Agent — AI-powered cross-document QA auditor with page-level traceability for 100+ page loan files.">
+    <title>InfrX // Mortgage Document Intelligence</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- App CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-shell">
+
+        <!-- ====== Sidebar ====== -->
+        <aside class="sidebar">
+            <div class="sidebar-logo">X</div>
+            <nav class="sidebar-nav">
+                <button class="sidebar-btn active" id="nav-workspace" title="Workspace"><i class="fa-solid fa-objects-column"></i></button>
+                <button class="sidebar-btn" id="nav-settings" title="Settings"><i class="fa-solid fa-sliders"></i></button>
+            </nav>
+            <div class="sidebar-avatar">JD</div>
+        </aside>
+
+        <!-- ====== Main Content ====== -->
+        <main class="main-content">
+
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <span class="header-badge">PROTOTYPE</span>
+                    <h1 class="header-title">InfrX Mortgage Intelligence</h1>
+                </div>
+                <div class="header-right">
+                    <div class="status-pill">
+                        <span class="pulse-dot"></span>
+                        <span class="status-text" id="status-label">Initializing workspace...</span>
+                    </div>
+                    <label class="upload-btn" id="upload-label">
+                        <input type="file" id="file-input" accept=".pdf">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> Upload PDF
+                    </label>
+                </div>
+            </header>
+
+            <!-- Workspace Grid -->
+            <div class="workspace-grid">
+
+                <!-- ====== Left Panel: Document Intelligence ====== -->
+                <section class="panel" id="panel-left">
+                    <div class="panel-header">
+                        <div class="tab-bar">
+                            <button class="tab-btn active" data-tab="tab-tree">
+                                <i class="fa-solid fa-diagram-project"></i> Logical Structure
+                            </button>
+                            <button class="tab-btn" data-tab="tab-viewer">
+                                <i class="fa-solid fa-file-lines"></i> Page Viewer
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+
+                        <!-- Tab: Document Tree -->
+                        <div class="tab-pane active" id="tab-tree">
+                            <div class="doc-tree">
+                                <div class="doc-tree-header">
+                                    <div class="doc-tree-title">Segmented Document Map</div>
+                                    <div class="doc-tree-subtitle">Boundary detection via heuristic classification & tax-year covariance.</div>
+                                </div>
+                                <div class="doc-tree-list" id="doc-tree-list">
+                                    <!-- Dynamic document nodes rendered here -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tab: Page Viewer -->
+                        <div class="tab-pane" id="tab-viewer">
+                            <div class="viewer-toolbar">
+                                <button class="viewer-nav-btn" id="btn-prev-page"><i class="fa-solid fa-chevron-left"></i></button>
+                                <div class="viewer-page-label">
+                                    Page <span id="lbl-current-page">1</span> of <span id="lbl-total-pages">1</span>
+                                </div>
+                                <button class="viewer-nav-btn" id="btn-next-page"><i class="fa-solid fa-chevron-right"></i></button>
+                            </div>
+                            <div class="viewer-body">
+                                <pre id="page-text">Select a document or page to view its content.</pre>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+                <!-- ====== Right Panel: QA Chat ====== -->
+                <section class="panel" id="panel-right">
+                    <div class="panel-header">
+                        <div class="panel-header-title">
+                            <i class="fa-solid fa-brain"></i> Auditor QA Workspace
+                        </div>
+                    </div>
+                    <div class="chat-container">
+
+                        <!-- Chat Feed -->
+                        <div class="chat-feed" id="chat-feed">
+
+                            <!-- Welcome Message -->
+                            <div class="msg system-msg">
+                                <div class="msg-avatar"><i class="fa-solid fa-robot"></i></div>
+                                <div class="msg-bubble">
+                                    <h3>Ready to audit this loan file</h3>
+                                    <p>I have logically paginated this loan file using covariance matrix mapping and text lattices. Select a benchmark audit question below or ask your own.</p>
+
+                                    <h4>Direct Lookups</h4>
+                                    <div class="suggest-grid">
+                                        <button class="suggest-chip">What is the note interest rate?</button>
+                                        <button class="suggest-chip">What loan type is this?</button>
+                                        <button class="suggest-chip">What is the total monthly housing payment (PITI)?</button>
+                                    </div>
+
+                                    <h4>Counting & Structure</h4>
+                                    <div class="suggest-grid">
+                                        <button class="suggest-chip emerald">How many separate documents are in this file?</button>
+                                        <button class="suggest-chip emerald">On which page does the Closing Disclosure begin?</button>
+                                    </div>
+
+                                    <h4>Aggregation & Math</h4>
+                                    <div class="suggest-grid">
+                                        <button class="suggest-chip">Sum the ending balances of every checking statement.</button>
+                                        <button class="suggest-chip">What is the single largest deposit found in the checking statements?</button>
+                                    </div>
+
+                                    <h4>Reasoning & Comparisons</h4>
+                                    <div class="suggest-grid">
+                                        <button class="suggest-chip emerald">Confirm the loan amount is identical across the forms.</button>
+                                        <button class="suggest-chip emerald">Do the W-2 box 1 wages reconcile with the wages on the Form 1040?</button>
+                                        <button class="suggest-chip emerald">What is the down payment (purchase price minus loan amount)?</button>
+                                    </div>
+
+                                    <h4>Near-Duplicates</h4>
+                                    <div class="suggest-grid">
+                                        <button class="suggest-chip">Among the paystubs, what year-to-date gross pay does the most recent one report?</button>
+                                    </div>
+
+                                    <h4>Unanswerable Questions</h4>
+                                    <div class="suggest-grid">
+                                        <button class="suggest-chip">What is the annual flood-insurance premium for the property?</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Chat Input -->
+                        <div class="chat-input-bar">
+                            <form class="chat-form" id="chat-form">
+                                <input type="text" id="chat-input" placeholder="Ask a question about the loan file..." autocomplete="off">
+                                <button type="submit" class="chat-send-btn" id="chat-send-btn"><i class="fa-solid fa-paper-plane"></i></button>
+                            </form>
+                        </div>
+
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- ====== API Key Modal ====== -->
+    <div class="modal-overlay" id="modal-config">
+        <div class="modal-card">
+            <div class="modal-head">
+                <h2><i class="fa-solid fa-key"></i> API Configuration</h2>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-desc">Supply your Gemini API Key below. It is stored locally in your browser and sent with each query to the backend.</p>
+                <div class="form-group">
+                    <label for="input-api-key">Gemini API Key</label>
+                    <input type="password" id="input-api-key" placeholder="AIzaSy...">
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-glow" id="btn-save-key">Save Key</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ====== Drag-and-Drop Overlay ====== -->
+    <div class="drop-overlay" id="drop-overlay">
+        <div class="drop-overlay-inner">
+            <i class="fa-solid fa-file-arrow-up"></i>
+            Drop PDF here to analyze
+        </div>
+    </div>
+
+    <!-- App JS -->
+    <script src="app.js"></script>
+</body>
+</html>
